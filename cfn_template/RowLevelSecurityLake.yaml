@@ -1,0 +1,758 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+Parameters:
+  MetadataDatabase:
+    Type: String
+    Default: aws_account_metadata_db
+    Description: The name of the database used to store account metadata.
+  SecurityLakeDB:
+    Type: String
+    Default: amazon_security_lake_glue_db_ap_southeast_2
+    Description: The name of the Security Lake database specified in the Glue Catalog.
+  SecurityLakeTable:
+    Type: String
+    Default: amazon_security_lake_table_ap_southeast_2_sh_findings_1_0
+    Description: The name of the Security Lake table you want to share.
+Resources:
+  metadatabucket705570F8:
+    Type: AWS::S3::Bucket
+    Properties:
+      Tags:
+        - Key: aws-cdk:auto-delete-objects
+          Value: "true"
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/metadata_bucket/Resource
+      cdk_nag:
+        rules_to_suppress:
+          - reason: S3 access logging not required for metadata bucket
+            id: AwsSolutions-S1
+  metadatabucketPolicy3924A7EC:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: metadatabucket705570F8
+      PolicyDocument:
+        Statement:
+          - Action: s3:*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+            Effect: Deny
+            Principal:
+              AWS: "*"
+            Resource:
+              - Fn::GetAtt:
+                  - metadatabucket705570F8
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - metadatabucket705570F8
+                        - Arn
+                    - /*
+          - Action:
+              - s3:DeleteObject*
+              - s3:GetBucket*
+              - s3:List*
+            Effect: Allow
+            Principal:
+              AWS:
+                Fn::GetAtt:
+                  - CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092
+                  - Arn
+            Resource:
+              - Fn::GetAtt:
+                  - metadatabucket705570F8
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - metadatabucket705570F8
+                        - Arn
+                    - /*
+        Version: "2012-10-17"
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/metadata_bucket/Policy/Resource
+  metadatabucketAutoDeleteObjectsCustomResourceB53BC6C6:
+    Type: Custom::S3AutoDeleteObjects
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F
+          - Arn
+      BucketName:
+        Ref: metadatabucket705570F8
+    DependsOn:
+      - metadatabucketPolicy3924A7EC
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/metadata_bucket/AutoDeleteObjectsCustomResource/Default
+  CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+      ManagedPolicyArns:
+        - Fn::Sub: arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role
+  CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: a657308e723bb9460b800cb3b47dadb74e28243edfe246bf7755c45ec312eb97.zip
+      Timeout: 900
+      MemorySize: 128
+      Handler: index.handler
+      Role:
+        Fn::GetAtt:
+          - CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092
+          - Arn
+      Runtime: nodejs18.x
+      Description:
+        Fn::Join:
+          - ""
+          - - "Lambda function for auto-deleting objects in "
+            - Ref: metadatabucket705570F8
+            - " S3 bucket."
+    DependsOn:
+      - CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler
+      aws:asset:path: asset.a657308e723bb9460b800cb3b47dadb74e28243edfe246bf7755c45ec312eb97
+      aws:asset:property: Code
+  LFRegisteredBucket:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn:
+        Fn::GetAtt:
+          - metadatabucket705570F8
+          - Arn
+      UseServiceLinkedRole: true
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/LFRegisteredBucket
+  RLSecLakeLambdaRole138BFBC7:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - organizations:DescribeOrganization
+                  - organizations:DescribeOrganizationalUnit
+                  - organizations:ListAccountsForParent
+                  - organizations:ListOrganizationalUnitsForParent
+                  - organizations:ListRoots
+                  - organizations:ListTagsForResource
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: OrgsAccess
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - s3:DeleteObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                Effect: Allow
+                Resource:
+                  - Fn::GetAtt:
+                      - metadatabucket705570F8
+                      - Arn
+                  - Fn::Join:
+                      - ""
+                      - - arn:aws:s3:::aws-athena-query-results-
+                        - Ref: AWS::AccountId
+                        - "-"
+                        - Ref: AWS::Region
+                        - /*
+                  - Fn::Join:
+                      - ""
+                      - - Fn::GetAtt:
+                            - metadatabucket705570F8
+                            - Arn
+                        - /*
+            Version: "2012-10-17"
+          PolicyName: S3Access
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - lakeformation:BatchGrantPermissions
+                  - lakeformation:CreateDataCellsFilter
+                  - lakeformation:DeleteDataCellsFilter
+                  - lakeformation:GetDataAccess
+                  - lakeformation:ListDataCellsFilter
+                  - lakeformation:ListPermissions
+                  - lakeformation:ListResources
+                  - lakeformation:UpdateDataCellsFilter
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: LakeFormationAccess
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - glue:BatchGetTable
+                  - glue:CreateTable
+                  - glue:DeleteTable
+                  - glue:GetTable
+                  - glue:PutResourcePolicy
+                  - glue:UpdateTable
+                Effect: Allow
+                Resource:
+                  - Fn::Join:
+                      - ""
+                      - - "arn:aws:glue:"
+                        - Ref: AWS::Region
+                        - ":"
+                        - Ref: AWS::AccountId
+                        - :catalog
+                  - Fn::Join:
+                      - ""
+                      - - "arn:aws:glue:"
+                        - Ref: AWS::Region
+                        - ":"
+                        - Ref: AWS::AccountId
+                        - :database/
+                        - Ref: MetadataDatabase
+                  - Fn::Join:
+                      - ""
+                      - - "arn:aws:glue:"
+                        - Ref: AWS::Region
+                        - ":"
+                        - Ref: AWS::AccountId
+                        - :table/
+                        - Ref: MetadataDatabase
+                        - /*
+            Version: "2012-10-17"
+          PolicyName: GlueMetadataTableAccess
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - glue:BatchGetTable
+                  - glue:GetTable
+                  - glue:PutResourcePolicy
+                  - glue:UpdateTable
+                Effect: Allow
+                Resource:
+                  - Fn::Join:
+                      - ""
+                      - - "arn:aws:glue:"
+                        - Ref: AWS::Region
+                        - ":"
+                        - Ref: AWS::AccountId
+                        - :database/
+                        - Ref: SecurityLakeDB
+                  - Fn::Join:
+                      - ""
+                      - - "arn:aws:glue:"
+                        - Ref: AWS::Region
+                        - ":"
+                        - Ref: AWS::AccountId
+                        - :table/
+                        - Ref: SecurityLakeDB
+                        - /
+                        - Ref: SecurityLakeTable
+            Version: "2012-10-17"
+          PolicyName: GlueSecLakeTableAccess
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:StartQueryExecution
+                  - s3:CreateBucket
+                  - s3:GetBucketLocation
+                Effect: Allow
+                Resource:
+                  - Fn::Join:
+                      - ""
+                      - - "arn:aws:athena:"
+                        - Ref: AWS::Region
+                        - ":"
+                        - Ref: AWS::AccountId
+                        - :workgroup/*
+                  - Fn::Join:
+                      - ""
+                      - - arn:aws:s3:::aws-athena-query-results-
+                        - Ref: AWS::AccountId
+                        - "-"
+                        - Ref: AWS::Region
+            Version: "2012-10-17"
+          PolicyName: AthenaAccess
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - ram:AssociateResourceShare
+                  - ram:CreateResourceShare
+                  - ram:GetResourceShares
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: RAMAccess
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Effect: Allow
+                Resource:
+                  Fn::Join:
+                    - ""
+                    - - "arn:aws:logs:"
+                      - Ref: AWS::Region
+                      - ":"
+                      - Ref: AWS::AccountId
+                      - :log-group:/aws/lambda/RLSecLake*
+            Version: "2012-10-17"
+          PolicyName: LambdaLogging
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeLambdaRole/Resource
+      cdk_nag:
+        rules_to_suppress:
+          - reason: Wildcards are constrained with prefixes applicable to the solution - eg RLSecLake*
+            id: AwsSolutions-IAM5
+  RLSecLakeDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId:
+        Ref: AWS::AccountId
+      DatabaseInput:
+        Description: Stores AWS account metadata and group information
+        Name:
+          Ref: MetadataDatabase
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeDatabase
+  RLSecLakeLambdaD41F2985:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 936b944fb76439387ef7cd18bb3287d06c942a155eb2b91a3354613b6c33f70e.zip
+      Environment:
+        Variables:
+          metadata_bucket:
+            Ref: metadatabucket705570F8
+          metadata_database:
+            Ref: MetadataDatabase
+          account_id:
+            Ref: AWS::AccountId
+          security_lake_db:
+            Ref: SecurityLakeDB
+          security_lake_table:
+            Ref: SecurityLakeTable
+      FunctionName: RLSecLakeLambda
+      Handler: lambda_function.lambda_handler
+      Layers:
+        - Fn::Join:
+            - ""
+            - - "arn:aws:lambda:"
+              - Ref: AWS::Region
+              - :336392948345:layer:AWSSDKPandas-Python311:1
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+          - RLSecLakeLambdaRole138BFBC7
+          - Arn
+      Runtime: python3.11
+      Timeout: 300
+    DependsOn:
+      - RLSecLakeLambdaRole138BFBC7
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeLambda/Resource
+      aws:asset:path: asset.936b944fb76439387ef7cd18bb3287d06c942a155eb2b91a3354613b6c33f70e
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  CustomResourceLambdaRoleC810B87F:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action: lambda:InvokeFunction
+                Effect: Allow
+                Resource:
+                  Fn::GetAtt:
+                    - RLSecLakeLambdaD41F2985
+                    - Arn
+            Version: "2012-10-17"
+          PolicyName: LambdaInvoke
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Effect: Allow
+                Resource:
+                  Fn::Join:
+                    - ""
+                    - - "arn:aws:logs:"
+                      - Ref: AWS::Region
+                      - ":"
+                      - Ref: AWS::AccountId
+                      - :log-group:/aws/lambda/RLSecLake*
+            Version: "2012-10-17"
+          PolicyName: LambdaLogging
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/CustomResourceLambdaRole/Resource
+      cdk_nag:
+        rules_to_suppress:
+          - reason: Only uses wildcards for CloudWatch Logs and are constrained with prefixes applicable to the solution - eg RLSecLake*
+            id: AwsSolutions-IAM5
+  CustomResourceLambda42C1FE6E:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: 40e80597550567913490612e3e9581e38ada4128a8f7b3b170f2f5d4c9de8f26.zip
+      Environment:
+        Variables:
+          rlseclake_lambda_arn:
+            Fn::GetAtt:
+              - RLSecLakeLambdaD41F2985
+              - Arn
+      FunctionName: RLSecLakeCustomResourceLambda
+      Handler: lambda_function.on_event
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+          - CustomResourceLambdaRoleC810B87F
+          - Arn
+      Runtime: python3.11
+      Timeout: 300
+    DependsOn:
+      - CustomResourceLambdaRoleC810B87F
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/CustomResourceLambda/Resource
+      aws:asset:path: asset.40e80597550567913490612e3e9581e38ada4128a8f7b3b170f2f5d4c9de8f26
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  RLSecLakeProviderframeworkonEventServiceRoleFFAD01FD:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeProvider/framework-onEvent/ServiceRole/Resource
+      cdk_nag:
+        rules_to_suppress:
+          - reason: Default behaviour of provider construct used for custom resource. Only used for Lambda logging.
+            id: AwsSolutions-IAM4
+          - reason: Default behaviour of provider construct used for custom resource.
+            id: AwsSolutions-IAM5
+  RLSecLakeProviderframeworkonEventServiceRoleDefaultPolicyD659A89D:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: lambda:InvokeFunction
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - CustomResourceLambda42C1FE6E
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - CustomResourceLambda42C1FE6E
+                        - Arn
+                    - :*
+        Version: "2012-10-17"
+      PolicyName: RLSecLakeProviderframeworkonEventServiceRoleDefaultPolicyD659A89D
+      Roles:
+        - Ref: RLSecLakeProviderframeworkonEventServiceRoleFFAD01FD
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeProvider/framework-onEvent/ServiceRole/DefaultPolicy/Resource
+      cdk_nag:
+        rules_to_suppress:
+          - reason: Default behaviour of provider construct used for custom resource. Only used for Lambda logging.
+            id: AwsSolutions-IAM4
+          - reason: Default behaviour of provider construct used for custom resource.
+            id: AwsSolutions-IAM5
+  RLSecLakeProviderframeworkonEvent98A3F0A6:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: f2d30cfc360482320a52a4fcde8a70f3569df79ab30be24650fda58eb60052cf.zip
+      Description: AWS CDK resource provider framework - onEvent (RowLevelSecurityLakeStack/RLSecLakeProvider)
+      Environment:
+        Variables:
+          USER_ON_EVENT_FUNCTION_ARN:
+            Fn::GetAtt:
+              - CustomResourceLambda42C1FE6E
+              - Arn
+      Handler: framework.onEvent
+      Role:
+        Fn::GetAtt:
+          - RLSecLakeProviderframeworkonEventServiceRoleFFAD01FD
+          - Arn
+      Runtime: nodejs18.x
+      Timeout: 900
+    DependsOn:
+      - RLSecLakeProviderframeworkonEventServiceRoleDefaultPolicyD659A89D
+      - RLSecLakeProviderframeworkonEventServiceRoleFFAD01FD
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeProvider/framework-onEvent/Resource
+      aws:asset:path: asset.f2d30cfc360482320a52a4fcde8a70f3569df79ab30be24650fda58eb60052cf
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+      cdk_nag:
+        rules_to_suppress:
+          - reason: Default behaviour of provider construct used for custom resource. Only used for Lambda logging.
+            id: AwsSolutions-IAM4
+          - reason: Default behaviour of provider construct used for custom resource.
+            id: AwsSolutions-IAM5
+  RLSecLakeCustomResource:
+    Type: Custom::RLSecLakeCustomResource
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - RLSecLakeProviderframeworkonEvent98A3F0A6
+          - Arn
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/RLSecLakeCustomResource/Default
+  LambdaTriggerRule3355441D:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(1 hour)
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - RLSecLakeLambdaD41F2985
+              - Arn
+          Id: Target0
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/LambdaTriggerRule/Resource
+  LambdaTriggerRuleAllowEventRuleRowLevelSecurityLakeStackRLSecLakeLambdaAF2C888F5DCAB5DC:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - RLSecLakeLambdaD41F2985
+          - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+          - LambdaTriggerRule3355441D
+          - Arn
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/LambdaTriggerRule/AllowEventRuleRowLevelSecurityLakeStackRLSecLakeLambdaAF2C888F
+  DataLakeSettings:
+    Type: AWS::LakeFormation::DataLakeSettings
+    Properties:
+      Admins:
+        - DataLakePrincipalIdentifier:
+            Fn::Join:
+              - ""
+              - - "arn:aws:iam::"
+                - Ref: AWS::AccountId
+                - :role/cdk-hnb659fds-cfn-exec-role-
+                - Ref: AWS::AccountId
+                - "-"
+                - Ref: AWS::Region
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/DataLakeSettings
+  DBPrincipalPermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier:
+          Fn::GetAtt:
+            - RLSecLakeLambdaRole138BFBC7
+            - Arn
+      Permissions:
+        - ALL
+        - ALTER
+        - CREATE_TABLE
+        - DESCRIBE
+        - DROP
+      PermissionsWithGrantOption:
+        - ALL
+        - ALTER
+        - CREATE_TABLE
+        - DESCRIBE
+        - DROP
+      Resource:
+        DatabaseResource:
+          CatalogId:
+            Ref: AWS::AccountId
+          Name:
+            Ref: MetadataDatabase
+    DependsOn:
+      - DataLakeSettings
+      - RLSecLakeDatabase
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/DBPrincipalPermissions
+  MetadataBucketLocationPermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier:
+          Fn::GetAtt:
+            - RLSecLakeLambdaRole138BFBC7
+            - Arn
+      Permissions:
+        - DATA_LOCATION_ACCESS
+      Resource:
+        DataLocationResource:
+          CatalogId:
+            Ref: AWS::AccountId
+          S3Resource:
+            Fn::GetAtt:
+              - metadatabucket705570F8
+              - Arn
+    DependsOn:
+      - DataLakeSettings
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/MetadataBucketLocationPermissions
+  ExistingSecLakeTablePermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier:
+          Fn::GetAtt:
+            - RLSecLakeLambdaRole138BFBC7
+            - Arn
+      Permissions:
+        - SELECT
+      PermissionsWithGrantOption:
+        - SELECT
+      Resource:
+        TableResource:
+          CatalogId:
+            Ref: AWS::AccountId
+          DatabaseName:
+            Ref: SecurityLakeDB
+          Name:
+            Ref: SecurityLakeTable
+    DependsOn:
+      - DataLakeSettings
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/ExistingSecLakeTablePermissions
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/1WQwW7DIAyGn6V36jXLacc10047ROkDRA5xM5YAEoZOFcq7j5Co6U7/b/zh3/AKbwWcDvjLR9mPx0l1EC8e5Siqq6nRoSZPTqR+G7mEeA5yJL80N7dKbScl7/vxVq/FGZlmMeFIV+s0emUNxIQ2xDY4Scu1D/T4lYgLea/MwDmenFbMCedZKNQQGztlOuueubpZDFMg2IZ1KTRl6q5HiJ/ByCV2gZ/9njALLltkJs/wvoigG5lUxCZsmUnnWVSBvdXPq+/+X6t29qb69Hd5XPrTIb1LPGCZ4dZtNcODTyMra3rl81r13X9b81JCcYKiOPywUkcXjFeaoFn1D+2IHwzEAQAA
+    Metadata:
+      aws:cdk:path: RowLevelSecurityLakeStack/CDKMetadata/Default
+    Condition: CDKMetadataAvailable
+Conditions:
+  CDKMetadataAvailable:
+    Fn::Or:
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - af-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-northwest-1
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - sa-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-2
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-2
+

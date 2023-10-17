@@ -1,0 +1,5 @@
+{
+    "metadata_database": "aws_account_metadata_db",
+    "security_lake_db": "amazon_security_lake_glue_db_ap_southeast_2",
+    "security_lake_table": "amazon_security_lake_table_ap_southeast_2_sh_findings_1_0"
+}
